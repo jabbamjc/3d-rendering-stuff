@@ -1,0 +1,204 @@
+$gtk.reset
+attr_gtk
+class Matrix
+    attr_accessor :matrix
+    def initialize(matrix)
+        @matrix = matrix
+    end
+
+    def * (matrix_2)
+        m2 = matrix_2.matrix if matrix_2.instance_of? Matrix
+        m2 = (matrix_2.to_matrix).matrix if matrix_2.instance_of? Vector
+        
+        return unless @matrix[0].length == m2.length
+        result = []
+        @matrix.each do |row|
+            sum = 0
+            row.each_with_index do |element, i|
+                sum += element*m2[i][0]
+            end
+            result << [sum]
+        end
+        Matrix.new(result)
+    end
+
+    def to_vector
+        @matrix.length > 2 ? z = @matrix[2][0] : z = 0
+        vector = Vector.new(@matrix[0][0], @matrix[1][0], z)
+        vector
+    end
+end
+
+class Vector
+    attr_accessor :vector, :x, :y, :z
+    def initialize(x, y, z)
+        @vector = { x: x, y: y, z: z }
+        @x = x
+        @y = y
+        @z = z
+    end
+
+    def to_matrix
+        matrix = [
+            [@vector.x],
+            [@vector.y],
+            [@vector.z]
+        ]
+        matrix = Matrix.new(matrix)
+    end
+
+    def shift_up x, y, z
+        @vector[:x] += x
+        @vector[:y] += y
+        @vector[:z] += z
+        @x += x
+        @y += y
+        @z += z
+    end
+
+    def shift_down x, y, z
+        @vector[:x] -= x
+        @vector[:y] -= y
+        @vector[:z] -= z
+        @x -= x
+        @y -= y
+        @z -= z
+    end
+
+    def scale scalar
+        @vector[:x] *= scalar
+        @vector[:y] *= scalar
+        #@vector[:z] *= scalar
+    end
+end
+
+class Cube
+    attr_accessor :mid_x, :mid_y, :mid_z, :vector_points
+    def initialize(x, y, z, side_length)
+        l = side_length/2
+        @mid_x = x
+        @mid_y = y
+        @mid_z = z
+        @vector_points = [
+             Vector.new(x+l, y+l, z+l),
+             Vector.new(x+l, y-l, z+l),
+             Vector.new(x-l, y+l, z+l),
+             Vector.new(x-l, y-l, z+l),
+
+             Vector.new(x+l, y+l, z-l),
+             Vector.new(x+l, y-l, z-l),
+             Vector.new(x-l, y+l, z-l),
+             Vector.new(x-l, y-l, z-l)
+        ]
+    end
+
+    def scale scalar
+        @vector_points[0].vector.merge!({x: (@mid_x+scalar), y: (@mid_y+scalar), z: @mid_z+scalar})
+        @vector_points[1].vector.merge!({x: (@mid_x+scalar), y: (@mid_y-scalar), z: @mid_z+scalar})
+        @vector_points[2].vector.merge!({x: (@mid_x-scalar), y: (@mid_y+scalar), z: @mid_z+scalar})
+        @vector_points[3].vector.merge!({x: (@mid_x-scalar), y: (@mid_y-scalar), z: @mid_z+scalar})
+
+        @vector_points[4].vector.merge!({x: (@mid_x+scalar), y: (@mid_y+scalar), z: @mid_z-scalar})
+        @vector_points[5].vector.merge!({x: (@mid_x+scalar), y: (@mid_y-scalar), z: @mid_z-scalar})
+        @vector_points[6].vector.merge!({x: (@mid_x-scalar), y: (@mid_y+scalar), z: @mid_z-scalar})
+        @vector_points[7].vector.merge!({x: (@mid_x-scalar), y: (@mid_y-scalar), z: @mid_z-scalar})
+    end
+end
+
+def rotate_z x, y, z, point_vector, angle
+    rotation_x ||= Matrix.new([
+        [Math.cos(angle), -Math.sin(angle), 0],
+        [Math.sin(angle), Math.cos(angle), 0],
+        [0, 0, 1]
+    ])
+
+    point_vector.shift_down x, y, z
+    vec = (rotation_x * point_vector).to_vector
+    vec.shift_up x, y, z
+  
+    vec
+end
+
+def rotate_x x, y, z, point_vector, angle
+    rotation_x ||= Matrix.new([
+        [1, 0, 0],
+        [0, Math.cos(angle), -Math.sin(angle)],
+        [0, Math.sin(angle), Math.cos(angle)]
+    ])
+    point_vector.shift_down x, y, z
+    vec = (rotation_x * point_vector).to_vector
+    vec.shift_up x, y, z
+
+    vec
+end
+
+def rotate_y x, y, z, point_vector, angle
+    rotation_x ||= Matrix.new([
+        [Math.cos(angle), 0, -Math.sin(angle)],
+        [0, 1, 0],
+        [Math.sin(angle), 0, Math.cos(angle)]
+    ])
+    point_vector.shift_down x, y, z
+    vec = (rotation_x * point_vector).to_vector
+    vec.shift_up x, y, z
+
+    vec
+end
+
+
+def tick args
+    args.state.cube = Cube.new(args.inputs.mouse.x, args.inputs.mouse.y, 500, 200) if args.inputs.mouse.click
+
+    args.state.size ||= 200
+    args.state.size += 10*args.inputs.mouse.wheel.y if args.inputs.mouse.wheel
+    args.state.cube.scale args.state.size if args.inputs.mouse.wheel
+
+
+    x = args.state.cube.mid_x
+    y = args.state.cube.mid_y
+    z = args.state.cube.mid_z
+
+    args.state.temp_list = []
+
+    args.state.cube.vector_points.each_with_index do |point, i|
+        rotated = point
+        rotated = rotate_x x, y, z, rotated, 0.02*args.inputs.keyboard.up_down
+        rotated = rotate_y x, y, z, rotated, 0.02*args.inputs.keyboard.left_right
+        rotated = rotate_z x, y, z, rotated, 0.03 if args.inputs.keyboard.key_held.q
+
+        q = (100/rotated.z)
+        
+        projection = Matrix.new([
+            [q, 0, 0.5],
+            [0, q, 0.5],
+            [0, 0, 1]
+        ])
+
+        projected = (projection*rotated).to_vector
+
+        puts "#{rotated.vector}|#{rotated.x}|#{rotated.y}|#{rotated.z}\n#{q}" if args.inputs.keyboard.key_down.p
+        puts "#{projected.vector}|#{projected.x}|#{projected.y}|#{projected.z}\nas" if args.inputs.keyboard.key_down.x
+
+        args.outputs.solids << { x: projected.x - 5, y: projected.y - 5, w: 10, h: 10, r: 200, g: 100, b: 100 }
+
+        args.state.cube.vector_points[i] = rotated
+        args.state.temp_list[i] = projected
+    end
+
+    
+    args.outputs.lines << { x: args.state.temp_list[0].x, y: args.state.temp_list[0].y, x2: args.state.temp_list[1].x, y2: args.state.temp_list[1].y, r: 200, g: 100, b: 100 }
+    args.outputs.lines << { x: args.state.temp_list[0].vector[:x], y: args.state.temp_list[0].vector[:y], x2: args.state.temp_list[2].vector[:x], y2: args.state.temp_list[2].vector[:y], r: 200, g: 100, b: 100 }
+    args.outputs.lines << { x: args.state.temp_list[0].vector[:x], y: args.state.temp_list[0].vector[:y], x2: args.state.temp_list[4].vector[:x], y2: args.state.temp_list[4].vector[:y], r: 200, g: 100, b: 100 }
+
+    args.outputs.lines << { x: args.state.temp_list[3].vector[:x], y: args.state.temp_list[3].vector[:y], x2: args.state.temp_list[1].vector[:x], y2: args.state.temp_list[1].vector[:y], r: 200, g: 100, b: 100 }
+    args.outputs.lines << { x: args.state.temp_list[3].vector[:x], y: args.state.temp_list[3].vector[:y], x2: args.state.temp_list[2].vector[:x], y2: args.state.temp_list[2].vector[:y], r: 200, g: 100, b: 100 }
+    args.outputs.lines << { x: args.state.temp_list[3].vector[:x], y: args.state.temp_list[3].vector[:y], x2: args.state.temp_list[7].vector[:x], y2: args.state.temp_list[7].vector[:y], r: 200, g: 100, b: 100 }
+
+    args.outputs.lines << { x: args.state.temp_list[5].vector[:x], y: args.state.temp_list[5].vector[:y], x2: args.state.temp_list[1].vector[:x], y2: args.state.temp_list[1].vector[:y], r: 200, g: 100, b: 100 }
+    args.outputs.lines << { x: args.state.temp_list[5].vector[:x], y: args.state.temp_list[5].vector[:y], x2: args.state.temp_list[4].vector[:x], y2: args.state.temp_list[4].vector[:y], r: 200, g: 100, b: 100 }
+    args.outputs.lines << { x: args.state.temp_list[5].vector[:x], y: args.state.temp_list[5].vector[:y], x2: args.state.temp_list[7].vector[:x], y2: args.state.temp_list[7].vector[:y], r: 200, g: 100, b: 100 }
+
+    args.outputs.lines << { x: args.state.temp_list[6].vector[:x], y: args.state.temp_list[6].vector[:y], x2: args.state.temp_list[7].vector[:x], y2: args.state.temp_list[7].vector[:y], r: 200, g: 100, b: 100 }
+    args.outputs.lines << { x: args.state.temp_list[6].vector[:x], y: args.state.temp_list[6].vector[:y], x2: args.state.temp_list[4].vector[:x], y2: args.state.temp_list[4].vector[:y], r: 200, g: 100, b: 100 }
+    args.outputs.lines << { x: args.state.temp_list[6].vector[:x], y: args.state.temp_list[6].vector[:y], x2: args.state.temp_list[2].vector[:x], y2: args.state.temp_list[2].vector[:y], r: 200, g: 100, b: 100 }
+end
